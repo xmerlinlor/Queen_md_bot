@@ -1,0 +1,43 @@
+{
+  "name": "queen-md",
+  "version": "1.0.0",
+  "description": "Queen MD Mini WhatsApp Bot with Telegram pairing",
+  "main": "index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "whatsapp",
+    "bot",
+    "telegram",
+    "baileys",
+    "queen-md",
+    "automation"
+  ],
+  "author": "xmerlinlor",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.0.0",
+    "npm": ">=10.0.0"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "latest",
+    "dotenv": "latest",
+    "pino": "latest",
+    "telegraf": "latest"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/xmerlinlor/Queen_md_bot.git"
+  },
+  "bugs": {
+    "url": "https://github.com/xmerlinlor/Queen_md_bot/issues"
+  },
+  "homepage": "https://github.com/xmerlinlor/Queen_md_bot#readme"
+}
