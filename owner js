@@ -1,0 +1,16 @@
+export default async function owner(sock, msg) {
+  const chatId = msg.key.remoteJid;
+
+  await sock.sendMessage(chatId, {
+    text: `╭━━━〔 👑 ᴏᴡɴᴇʀ 〕━━━╮
+┃
+┃ 👑 ᴍʀ & ᴍʀs ǫᴜᴇᴇɴ
+┃
+┃ 📱 +234 812 202 9123
+┃
+┃ 🤖 ʙᴏᴛ: ǫᴜᴇᴇɴ ᴍᴅ
+┃ 🟢 sᴛᴀᴛᴜs: ᴏɴʟɪɴᴇ
+┃
+╰━━━━━━━━━━━━━━━━╯`
+  });
+}
