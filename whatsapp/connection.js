@@ -107,28 +107,17 @@ async function startWhatsApp() {
 
     const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
 
+    // Create socket with Baileys v6.6.2 compatible options
     sock = makeWASocket({
       auth: state,
       version: version,
-
       logger: pino({
         level: config.debugMode ? "debug" : "silent",
       }),
-
       browser: ["Queen MD", "Chrome", config.botVersion],
-
       printQRInTerminal: false,
-
       generateHighQualityLinkPreview: false,
-
-      shouldSyncHistoryMessage: false,
-
       markOnlineOnConnect: true,
-
-      // Connection options
-      maxMsDelay: 100,
-      defaultQueryTimeoutMs: undefined,
-      retryRequestDelayMs: 250,
     });
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -147,7 +136,6 @@ async function startWhatsApp() {
       // QR Code for manual pairing
       if (qr) {
         log("📱 QR Code received for manual pairing");
-        // You can implement QR code display here
       }
 
       if (connection === "open") {
@@ -205,8 +193,6 @@ async function startWhatsApp() {
         if (!message.message) return;
 
         log(`💬 Message from ${message.key.remoteJid}: ${message.message.conversation || "[media]"}`);
-
-        // Add your message handling logic here
       } catch (error) {
         console.error("❌ Message handling error:", error.message);
       }
@@ -218,7 +204,6 @@ async function startWhatsApp() {
     connectionStatus = "disconnected";
 
     console.error("❌ WhatsApp startup error:", error.message);
-    console.error("Stack trace:", error.stack);
 
     // Retry after delay
     if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
@@ -282,7 +267,6 @@ async function requestPairingCode(number) {
     return code;
   } catch (error) {
     console.error("❌ Pairing code error:", error.message);
-    console.error("Stack trace:", error.stack);
     throw error;
   }
 }
