@@ -1,21 +1,22 @@
 // ╔══════════════════════════════════════╗
 // ║          👑 QUEEN MD                ║
-// ║        ALIVE COMMAND                ║
+// ║        OWNER COMMAND                ║
 // ╚══════════════════════════════════════╝
+
+const config = require("../config");
 
 module.exports = async (ctx) => {
   const { sock, jid } = ctx;
 
-  const alive = `╭━━〔 👑 QUEEN MD 〕━━╮
+  const ownerInfo = `╭━━〔 👨‍💼 OWNER 〕━━╮
 ┃
-┃ 🟢 Bot Status: *ONLINE*
-┃ ⚡ Mode: Mini Bot
-┃ 📱 Platform: WhatsApp
-┃ 🤖 AI: Enabled
+┃ 👤 Name: xmerlinlor
+┃ 📱 WhatsApp: ${config.ownerNumber || "Not configured"}
+┃ 🔗 GitHub: github.com/xmerlinlor
 ┃
-┃ Made with ❤️ by xmerlinlor
+┃ 📝 For support, contact owner
 ┃
 ╰━━━━━━━━━━━━━━━━━━━━╯`;
 
-  await sock.sendMessage(jid, { text: alive });
+  await sock.sendMessage(jid, { text: ownerInfo });
 };
