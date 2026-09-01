@@ -50,6 +50,9 @@ const config = {
   // 📱 WhatsApp Configuration
   sessionName: process.env.SESSION_NAME || "queen-md-session",
   whatsappTimeout: process.env.WHATSAPP_TIMEOUT || 60000, // 60 seconds
+  shouldSyncHistoryMessage: false, // Baileys option - don't sync history
+  generateHighQualityLinkPreview: false, // Baileys option - disable link previews
+  markOnlineOnConnect: true, // Baileys option - mark as online when connected
 
   // ⚙️ Bot Settings
   mode: process.env.MODE || "public", // "public" or "private"
