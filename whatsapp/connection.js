@@ -218,6 +218,7 @@ async function startWhatsApp() {
     connectionStatus = "disconnected";
 
     console.error("❌ WhatsApp startup error:", error.message);
+    console.error("Stack trace:", error.stack);
 
     // Retry after delay
     if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
@@ -281,6 +282,7 @@ async function requestPairingCode(number) {
     return code;
   } catch (error) {
     console.error("❌ Pairing code error:", error.message);
+    console.error("Stack trace:", error.stack);
     throw error;
   }
 }
