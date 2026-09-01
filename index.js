@@ -9,6 +9,7 @@ const config = require("./config");
 const { startPairingBot } = require("./telegram/pairing");
 const { startWhatsApp } = require("./whatsapp/connection");
 const { handleMessage } = require("./whatsapp/handler");
+const { DisconnectReason } = require("@whiskeysockets/baileys");
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 📊 STATE MANAGEMENT
