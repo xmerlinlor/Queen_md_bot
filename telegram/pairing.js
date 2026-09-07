@@ -1,10 +1,6 @@
-// ╔══════════════════════════════════════╗
-// ║          👑 QUEEN MD                ║
-// ║       TELEGRAM PAIRING              ║
-// ╚══════════════════════════════════════╝
+// telegram/pairing.js
 
 const { Telegraf } = require("telegraf");
-
 const config = require("../config");
 
 const {
@@ -12,7 +8,6 @@ const {
   getConnectionStatus,
 } = require("../whatsapp/connection");
 
-// 🖼️ STARTUP SYSTEM
 const { sendStartup } = require("./startup");
 
 let telegramBot = null;
@@ -29,37 +24,35 @@ const ATTEMPT_RESET_TIME = 60 * 60 * 1000;
 const SESSION_TIMEOUT = 5 * 60 * 1000;
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 🔢 NORMALIZE WHATSAPP NUMBER
+// 🔢 NORMALIZE NUMBER
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 function normalizeNumber(input) {
   if (!input) return null;
 
-  let number = String(input).trim();
-
-  // Remove +, spaces, -, brackets, etc.
-  number = number.replace(/[^\d]/g, "");
+  let number = String(input)
+    .trim()
+    .replace(/[^\d]/g, "");
 
   if (!number) return null;
 
-  // Nigeria:
-  // 08012345678
-  // +2348012345678
-  // 2348012345678
-
+  // Nigerian local format
   if (number.startsWith("0")) {
-    number = "234" + number.substring(1);
-  } else if (number.startsWith("234")) {
-    // Already international
-  } else if (
+    number = "234" + number.slice(1);
+  }
+
+  // 10-digit Nigerian format
+  else if (
     number.length === 10 &&
     number.startsWith("8")
   ) {
     number = "234" + number;
   }
 
-  // Basic international validation
-  if (number.length < 10 || number.length > 15) {
+  if (
+    number.length < 10 ||
+    number.length > 15
+  ) {
     return null;
   }
 
@@ -72,7 +65,6 @@ function normalizeNumber(input) {
 
 function canPair(userId) {
   const now = Date.now();
-
   const data = pairingAttempts.get(userId);
 
   if (!data) {
@@ -84,7 +76,6 @@ function canPair(userId) {
     return true;
   }
 
-  // Reset after 1 hour
   if (
     now - data.firstAttempt >
     ATTEMPT_RESET_TIME
@@ -116,6 +107,10 @@ function getHelpMessage() {
 ┃ /start
 ┃ /pair
 ┃ /status
+┃ /stats
+┃ /ping
+┃ /runtime
+┃ /unpair
 ┃ /help
 ┃
 ┃ 📱 𝙷𝙾𝚆 𝚃𝙾 𝙿𝙰𝙸𝚁
@@ -142,14 +137,15 @@ function getStatusMessage() {
   let status = "🔴 Offline";
 
   try {
-    const connection = getConnectionStatus();
+    const connection =
+      getConnectionStatus();
 
     if (connection === "open") {
       status = "🟢 Connected";
-    } else if (connection === "connecting") {
+    } else if (
+      connection === "connecting"
+    ) {
       status = "🟡 Connecting";
-    } else if (connection === "closed") {
-      status = "🔴 Offline";
     }
   } catch (_) {}
 
@@ -158,13 +154,45 @@ function getStatusMessage() {
 ┃ 📲 Telegram: 🟢 Online
 ┃ 📱 WhatsApp: ${status}
 ┃ 🤖 Mode: Mini Bot
-┃ 📊 Version: ${config.botVersion || "1.0.0"}
+┃ 📊 Version: ${
+    config.botVersion || "1.0.0"
+  }
 ┃
 ╰━━━━━━━━━━━━━━━━━━━━━━━━━━╯`;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 🔗 START PAIRING SESSION
+// 📊 STATS
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+function getStatsMessage() {
+  const whatsapp =
+    getConnectionStatus() === "open"
+      ? "🟢 Connected"
+      : getConnectionStatus() ===
+        "connecting"
+      ? "🟡 Connecting"
+      : "🔴 Offline";
+
+  return `╭━━〔 📊 𝚀𝚄𝙴𝙴𝙽 𝙼𝙳 𝚂𝚃𝙰𝚃𝚂 〕━━╮
+┃
+┃ 👥 Active Pairing Sessions:
+┃ ${waitingForNumber.size}
+┃
+┃ 🔐 Pairing Trackers:
+┃ ${pairingAttempts.size}
+┃
+┃ 📱 WhatsApp:
+┃ ${whatsapp}
+┃
+┃ 🤖 Telegram:
+┃ 🟢 Online
+┃
+╰━━━━━━━━━━━━━━━━━━━━━━━━━━╯`;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 🔗 BEGIN PAIRING
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function beginPairing(ctx) {
@@ -201,31 +229,7 @@ async function beginPairing(ctx) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 📊 BASIC STATS
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-function getStatsMessage() {
-  return `╭━━〔 📊 𝚀𝚄𝙴𝙴𝙽 𝙼𝙳 𝚂𝚃𝙰𝚃𝚂 〕━━╮
-┃
-┃ 👥 Active Pairing Sessions:
-┃ ${waitingForNumber.size}
-┃
-┃ 🔐 Pairing Trackers:
-┃ ${pairingAttempts.size}
-┃
-┃ 📱 WhatsApp:
-┃ ${getConnectionStatus() === "open"
-    ? "🟢 Connected"
-    : "🔴 Offline"}
-┃
-┃ 🤖 Telegram:
-┃ 🟢 Online
-┃
-╰━━━━━━━━━━━━━━━━━━━━━━━━━━╯`;
-}
-
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 📲 START TELEGRAM BOT
+// 🚀 START TELEGRAM BOT
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function startPairingBot() {
@@ -237,14 +241,18 @@ async function startPairingBot() {
     return null;
   }
 
+  if (telegramBot) {
+    return telegramBot;
+  }
+
   try {
     telegramBot = new Telegraf(
       config.telegramToken
     );
 
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // 🏠 /START
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     telegramBot.start(async (ctx) => {
       try {
@@ -261,82 +269,93 @@ async function startPairingBot() {
       }
     });
 
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // 🔗 /PAIR
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-    telegramBot.command("pair", async (ctx) => {
-      try {
-        await beginPairing(ctx);
-      } catch (error) {
-        console.error(
-          "❌ /pair error:",
-          error.message
+    telegramBot.command(
+      "pair",
+      async (ctx) => {
+        try {
+          await beginPairing(ctx);
+        } catch (error) {
+          console.error(
+            "❌ /pair error:",
+            error.message
+          );
+
+          await ctx.reply(
+            "❌ Unable to start pairing."
+          );
+        }
+      }
+    );
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // ❌ /UNPAIR
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    telegramBot.command(
+      "unpair",
+      async (ctx) => {
+        const userId = ctx.from.id;
+
+        waitingForNumber.delete(
+          userId
         );
 
         await ctx.reply(
-          "❌ Unable to start pairing."
-        );
-      }
-    });
-
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // ❌ /UNPAIR
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-    telegramBot.command("unpair", async (ctx) => {
-      const userId = ctx.from.id;
-
-      waitingForNumber.delete(userId);
-
-      await ctx.reply(
-        `╭━━〔 ❌ 𝚄𝙽𝙿𝙰𝙸𝚁 〕━━╮
+          `╭━━〔 ❌ 𝚄𝙽𝙿𝙰𝙸𝚁 〕━━╮
 ┃
-┃ Pairing session removed.
-┃
-┃ ⚠️ This only clears the
-┃ current Telegram pairing request.
+┃ Pairing request cancelled.
 ┃
 ╰━━━━━━━━━━━━━━━━━━━━╯`
-      );
-    });
-
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // 📊 /STATUS
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-    telegramBot.command("status", async (ctx) => {
-      try {
-        await ctx.reply(
-          getStatusMessage()
-        );
-      } catch (error) {
-        console.error(
-          "❌ /status error:",
-          error.message
         );
       }
-    });
+    );
 
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // 📊 /STATUS
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    telegramBot.command(
+      "status",
+      async (ctx) => {
+        try {
+          await ctx.reply(
+            getStatusMessage()
+          );
+        } catch (error) {
+          console.error(
+            "❌ /status error:",
+            error.message
+          );
+        }
+      }
+    );
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // ⚡ /PING
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-    telegramBot.command("ping", async (ctx) => {
-      const start = Date.now();
+    telegramBot.command(
+      "ping",
+      async (ctx) => {
+        const start = Date.now();
 
-      const message = await ctx.reply(
-        "🏓 𝙿𝙸𝙽𝙶..."
-      );
+        const message =
+          await ctx.reply(
+            "🏓 𝙿𝙸𝙽𝙶..."
+          );
 
-      const latency =
-        Date.now() - start;
+        const latency =
+          Date.now() - start;
 
-      await ctx.telegram.editMessageText(
-        ctx.chat.id,
-        message.message_id,
-        undefined,
-        `╭━━〔 ⚡ 𝙿𝙸𝙽𝙶 〕━━╮
+        await ctx.telegram.editMessageText(
+          ctx.chat.id,
+          message.message_id,
+          undefined,
+          `╭━━〔 ⚡ 𝙿𝙸𝙽𝙶 〕━━╮
 ┃
 ┃ 🏓 Pong!
 ┃
@@ -346,39 +365,42 @@ async function startPairingBot() {
 ┃ 🟢 Telegram: Online
 ┃
 ╰━━━━━━━━━━━━━━━━╯`
-      );
-    });
+        );
+      }
+    );
 
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // ⏱️ /RUNTIME
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-    telegramBot.command("runtime", async (ctx) => {
-      const uptime =
-        process.uptime();
+    telegramBot.command(
+      "runtime",
+      async (ctx) => {
+        const uptime =
+          process.uptime();
 
-      const days =
-        Math.floor(
-          uptime / 86400
-        );
+        const days =
+          Math.floor(
+            uptime / 86400
+          );
 
-      const hours =
-        Math.floor(
-          (uptime % 86400) / 3600
-        );
+        const hours =
+          Math.floor(
+            (uptime % 86400) /
+              3600
+          );
 
-      const minutes =
-        Math.floor(
-          (uptime % 3600) / 60
-        );
+        const minutes =
+          Math.floor(
+            (uptime % 3600) /
+              60
+          );
 
-      const seconds =
-        Math.floor(
-          uptime % 60
-        );
+        const seconds =
+          Math.floor(uptime % 60);
 
-      await ctx.reply(
-        `╭━━〔 ⏱️ 𝚁𝚄𝙽𝚃𝙸𝙼𝙴 〕━━╮
+        await ctx.reply(
+          `╭━━〔 ⏱️ 𝚁𝚄𝙽𝚃𝙸𝙼𝙴 〕━━╮
 ┃
 ┃ 🟢 System: Active
 ┃
@@ -386,46 +408,53 @@ async function startPairingBot() {
 ┃ ${days}d ${hours}h ${minutes}m ${seconds}s
 ┃
 ╰━━━━━━━━━━━━━━━━╯`
-      );
-    });
+        );
+      }
+    );
 
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // 📊 /STATS
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-    telegramBot.command("stats", async (ctx) => {
-      try {
-        await ctx.reply(
-          getStatsMessage()
-        );
-      } catch (error) {
-        console.error(
-          "❌ /stats error:",
-          error.message
-        );
+    telegramBot.command(
+      "stats",
+      async (ctx) => {
+        try {
+          await ctx.reply(
+            getStatsMessage()
+          );
+        } catch (error) {
+          console.error(
+            "❌ /stats error:",
+            error.message
+          );
+        }
       }
-    });
+    );
 
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // ❓ /HELP
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-    telegramBot.command("help", async (ctx) => {
-      try {
-        await ctx.reply(
-          getHelpMessage()
-        );
-      } catch (error) {
-        console.error(
-          "❌ /help error:",
-          error.message
-        );
+    telegramBot.command(
+      "help",
+      async (ctx) => {
+        try {
+          await ctx.reply(
+            getHelpMessage()
+          );
+        } catch (error) {
+          console.error(
+            "❌ /help error:",
+            error.message
+          );
+        }
       }
-    });
+    );
 
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // 🎛️ STARTUP BUTTONS
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     telegramBot.action(
       "start_pair",
@@ -436,7 +465,7 @@ async function startPairingBot() {
           await beginPairing(ctx);
         } catch (error) {
           console.error(
-            "❌ Start pair button error:",
+            "❌ Start pair error:",
             error.message
           );
         }
@@ -455,35 +484,6 @@ async function startPairingBot() {
         } catch (error) {
           console.error(
             "❌ Status button error:",
-            error.message
-          );
-        }
-      }
-    );
-
-    telegramBot.action(
-      "start_ping",
-      async (ctx) => {
-        try {
-          await ctx.answerCbQuery();
-
-          const start = Date.now();
-
-          await ctx.reply(
-            `╭━━〔 ⚡ 𝙿𝙸𝙽𝙶 〕━━╮
-┃
-┃ 🏓 Pong!
-┃
-┃ 📡 Latency:
-┃ ${Date.now() - start} ms
-┃
-┃ 🟢 Telegram: Online
-┃
-╰━━━━━━━━━━━━━━━━╯`
-          );
-        } catch (error) {
-          console.error(
-            "❌ Ping button error:",
             error.message
           );
         }
@@ -526,88 +526,116 @@ async function startPairingBot() {
       }
     );
 
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // 📱 RECEIVE WHATSAPP NUMBER
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-    telegramBot.on("text", async (ctx) => {
-      try {
-        const userId = ctx.from.id;
+    telegramBot.on(
+      "text",
+      async (ctx) => {
+        try {
+          const userId =
+            ctx.from.id;
 
-        const session =
-          waitingForNumber.get(userId);
+          const session =
+            waitingForNumber.get(
+              userId
+            );
 
-        if (!session) return;
+          // Not waiting for a number
+          if (!session) {
+            return;
+          }
 
-        // Session timeout
-        if (
-          Date.now() - session.timestamp >
-          SESSION_TIMEOUT
-        ) {
-          waitingForNumber.delete(userId);
+          // ──────────────────────────
+          // ⏱️ SESSION TIMEOUT
+          // ──────────────────────────
 
-          await ctx.reply(
-            "⏱️ Pairing session expired.\n\n" +
-            "Send /pair to start again."
-          );
-
-          return;
-        }
-
-        const number =
-          normalizeNumber(
-            ctx.message.text
-          );
-
-        // Invalid number
-        if (!number) {
-          session.attempts++;
-
-          if (session.attempts >= 3) {
-            waitingForNumber.delete(userId);
+          if (
+            Date.now() -
+              session.timestamp >
+            SESSION_TIMEOUT
+          ) {
+            waitingForNumber.delete(
+              userId
+            );
 
             await ctx.reply(
-              "❌ Too many invalid attempts.\n\n" +
-              "Send /pair to try again."
+              "⏱️ Pairing session expired.\n\n" +
+              "Send /pair to start again."
             );
 
             return;
           }
 
-          await ctx.reply(
-            "❌ Invalid WhatsApp number.\n\n" +
-            "Example:\n" +
-            "2348012345678"
-          );
+          // ──────────────────────────
+          // 🔢 NORMALIZE NUMBER
+          // ──────────────────────────
 
-          return;
-        }
-
-        // Remove active pairing session
-        waitingForNumber.delete(userId);
-
-        await ctx.reply(
-          "⏳ Generating your WhatsApp pairing code..."
-        );
-
-        console.log(
-          `📱 Pairing requested for: ${number}`
-        );
-
-        try {
-          const code =
-            await requestPairingCode(
-              number
+          const number =
+            normalizeNumber(
+              ctx.message.text
             );
 
-          if (!code) {
-            throw new Error(
-              "WhatsApp did not return a pairing code."
+          if (!number) {
+            session.attempts++;
+
+            if (
+              session.attempts >= 3
+            ) {
+              waitingForNumber.delete(
+                userId
+              );
+
+              await ctx.reply(
+                "❌ Too many invalid attempts.\n\n" +
+                "Send /pair to try again."
+              );
+
+              return;
+            }
+
+            await ctx.reply(
+              "❌ Invalid WhatsApp number.\n\n" +
+              "Example:\n" +
+              "2348012345678"
             );
+
+            return;
           }
 
+          // Remove session before pairing
+          waitingForNumber.delete(
+            userId
+          );
+
           await ctx.reply(
-            `╭━━〔 🔑 𝚀𝚄𝙴𝙴𝙽 𝙼𝙳 〕━━╮
+            "⏳ Connecting to WhatsApp and generating your pairing code...\n\n" +
+            "Please wait."
+          );
+
+          console.log(
+            `📱 Pairing requested for ${number}`
+          );
+
+          // ──────────────────────────
+          // 🔐 REQUEST CODE
+          // ──────────────────────────
+
+          try {
+            const code =
+              await requestPairingCode(
+                number
+              );
+
+            if (!code) {
+              throw new Error(
+                "WhatsApp did not return a pairing code."
+              );
+            }
+
+            await ctx.reply(
+              `╭━━〔 🔑 𝚀𝚄𝙴𝙴𝙽 𝙼𝙳 〕━━╮
 ┃
 ┃ 📱 Number:
 ┃ ${number}
@@ -616,47 +644,49 @@ async function startPairingBot() {
 ┃
 ┃    ${code}
 ┃
-┃ Open WhatsApp:
+┃ 📲 Open WhatsApp:
+┃
 ┃ Settings
 ┃ → Linked Devices
 ┃ → Link a Device
 ┃ → Link with phone number instead
 ┃
-┃ Enter the code above.
+┃ 🔑 Enter the code above.
 ┃
-┃ ⚠️ Use a fresh code.
+┃ ⚠️ Use the code immediately.
 ┃
 ╰━━━━━━━━━━━━━━━━━━━━╯`
-          );
+            );
 
-          console.log(
-            `✅ Pairing code sent to Telegram user ${userId}`
-          );
+            console.log(
+              `✅ Pairing code sent to Telegram user ${userId}`
+            );
+
+          } catch (error) {
+            console.error(
+              "❌ WhatsApp pairing error:",
+              error.message
+            );
+
+            await ctx.reply(
+              `❌ Failed to generate pairing code.\n\n` +
+              `Error: ${error.message}\n\n` +
+              `Please send /pair again.`
+            );
+          }
 
         } catch (error) {
           console.error(
-            "❌ WhatsApp pairing error:",
+            "❌ Telegram text handler error:",
             error.message
           );
-
-          await ctx.reply(
-            `❌ Failed to generate pairing code.\n\n` +
-            `Error: ${error.message}\n\n` +
-            `Please send /pair again.`
-          );
         }
-
-      } catch (error) {
-        console.error(
-          "❌ Telegram text handler error:",
-          error.message
-        );
       }
-    });
+    );
 
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // ❌ TELEGRAM ERROR HANDLER
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     telegramBot.catch(
       async (error, ctx) => {
@@ -673,9 +703,9 @@ async function startPairingBot() {
       }
     );
 
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // 🚀 LAUNCH
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     await telegramBot.launch();
 
@@ -695,14 +725,31 @@ async function startPairingBot() {
       "╚════════════════════════════════════╝"
     );
 
-    // Graceful shutdown
-    process.once("SIGINT", () => {
-      telegramBot.stop("SIGINT");
-    });
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // 🛑 SHUTDOWN
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-    process.once("SIGTERM", () => {
-      telegramBot.stop("SIGTERM");
-    });
+    process.once(
+      "SIGINT",
+      () => {
+        if (telegramBot) {
+          telegramBot.stop(
+            "SIGINT"
+          );
+        }
+      }
+    );
+
+    process.once(
+      "SIGTERM",
+      () => {
+        if (telegramBot) {
+          telegramBot.stop(
+            "SIGTERM"
+          );
+        }
+      }
+    );
 
     return telegramBot;
 
@@ -711,6 +758,8 @@ async function startPairingBot() {
       "❌ Failed to start Telegram bot:",
       error.message
     );
+
+    telegramBot = null;
 
     return null;
   }
