@@ -3,10 +3,9 @@
 const { Telegraf, Markup } = require("telegraf");
 
 const config = require("../config");
+
 const {
   requestPairingCode,
-  getConnectionStatus,
-  isConnected,
 } = require("../whatsapp/connection");
 
 const { sendStartup } = require("./startup");
@@ -39,16 +38,6 @@ function getUserName(ctx) {
   );
 }
 
-function isOwner(ctx) {
-  const ownerId = String(
-    config.TELEGRAM_OWNER_ID ||
-    config.OWNER_ID ||
-    ""
-  );
-
-  return ownerId && getUserId(ctx) === ownerId;
-}
-
 function normalizeNumber(input) {
   if (!input) return null;
 
@@ -56,20 +45,20 @@ function normalizeNumber(input) {
     .trim()
     .replace(/[^\d+]/g, "");
 
-  // Remove +
   number = number.replace(/^\+/, "");
 
-  // Nigerian format: 08012345678
+  // Nigerian local number
+  // 08122029123 -> 2348122029123
   if (number.startsWith("0")) {
     number = "234" + number.slice(1);
   }
 
-  // 8012345678
+  // Nigerian number without country code
+  // 8122029123 -> 2348122029123
   else if (number.startsWith("8") && number.length === 10) {
     number = "234" + number;
   }
 
-  // Already international
   if (!/^\d+$/.test(number)) {
     return null;
   }
@@ -81,13 +70,10 @@ function normalizeNumber(input) {
   return number;
 }
 
-function clearPairingSession(userId) {
-  waitingForNumber.delete(userId);
-  pairingAttempts.delete(userId);
-}
-
 function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
 // ============================================
@@ -103,7 +89,7 @@ bot.start(async (ctx) => {
 ┃
 ┃ 👋 Hᴇʟʟᴏ ${name}
 ┃
-┃ 📱 Wʜᴀᴛsᴀᴘᴘ Pᴀɪʀɪɴɢ
+┃ 📱 WʜᴀᴛsAᴘᴘ Pᴀɪʀɪɴɢ
 ┃
 ┃ Cᴏɴɴᴇᴄᴛ ʏᴏᴜʀ WʜᴀᴛsAᴘᴘ
 ┃ ᴛᴏ Qᴜᴇᴇɴ ᴍᴅ ᴜsɪɴɢ ᴀ
@@ -173,7 +159,6 @@ async function beginPairing(ctx) {
 bot.action("PAIR_WHATSAPP", async (ctx) => {
   try {
     await ctx.answerCbQuery();
-
     await beginPairing(ctx);
   } catch (error) {
     console.error("❌ Pair button error:", error);
@@ -193,7 +178,7 @@ bot.on("text", async (ctx) => {
   // Ignore commands
   if (text.startsWith("/")) return;
 
-  // Only process if user requested pairing
+  // User must first use /pair
   if (!waitingForNumber.has(userId)) {
     return;
   }
@@ -204,9 +189,9 @@ bot.on("text", async (ctx) => {
 
   if (!number) {
     await ctx.reply(
-      `❌ Iɴᴠᴀʟɪᴅ WʜᴀᴛsAᴘᴘ ɴᴜᴍʙᴇʀ.
+      `❌ Iɴᴠᴀʟɪᴅ WʜᴀᴛsAᴘᴘ Nᴜᴍʙᴇʀ.
 
-Sᴇɴᴅ ʏᴏᴜʀ ɴᴜᴍʙᴇʀ ʟɪᴋᴇ:
+Sᴇɴᴅ ɪᴛ ʟɪᴋᴇ:
 
 ➜ 2348122029123
 
@@ -218,22 +203,28 @@ Oʀ
     return;
   }
 
-  let attempts = pairingAttempts.get(userId) || 0;
+  const attempts =
+    pairingAttempts.get(userId) || 0;
 
   if (attempts >= MAX_PAIRING_ATTEMPTS) {
     pairingAttempts.delete(userId);
 
     await ctx.reply(
-      "❌ Tᴏᴏ ᴍᴀɴʏ Pᴀɪʀɪɴɢ Aᴛᴛᴇᴍᴘᴛs.\n\nPʟᴇᴀsᴇ ᴛʀʏ ᴀɢᴀɪɴ ʟᴀᴛᴇʀ."
+      `❌ Tᴏᴏ ᴍᴀɴʏ Pᴀɪʀɪɴɢ Aᴛᴛᴇᴍᴘᴛs.
+
+Pʟᴇᴀsᴇ ᴡᴀɪᴛ ᴀɴᴅ ᴛʀʏ ᴀɢᴀɪɴ ʟᴀᴛᴇʀ.`
     );
 
     return;
   }
 
-  pairingAttempts.set(userId, attempts + 1);
+  pairingAttempts.set(
+    userId,
+    attempts + 1
+  );
 
   const statusMessage = await ctx.reply(
-    `⏳ Gᴇɴᴇʀᴀᴛɪɴɢ ʏᴏᴜʀ WʜᴀᴛsAᴘᴘ Pᴀɪʀɪɴɢ Cᴏᴅᴇ...
+    `⏳ Gᴇɴᴇʀᴀᴛɪɴɢ Yᴏᴜʀ WʜᴀᴛsAᴘᴘ Pᴀɪʀɪɴɢ Cᴏᴅᴇ...
 
 📱 Nᴜᴍʙᴇʀ: +${number}
 
@@ -242,20 +233,31 @@ Oʀ
 
   try {
     console.log(
-      `🔐 Telegram pairing request from ${userId} for +${number}`
+      `🔐 Pairing requested by Telegram user ${userId} for +${number}`
     );
 
-    const codePromise = requestPairingCode(number);
+    /*
+     * IMPORTANT:
+     *
+     * Do NOT check isConnected() here.
+     *
+     * requestPairingCode() is responsible for
+     * creating/preparing the WhatsApp socket.
+     */
 
-    const timeoutPromise = new Promise((_, reject) => {
-      setTimeout(() => {
-        reject(
-          new Error(
-            "Pairing code generation timed out."
-          )
-        );
-      }, PAIRING_TIMEOUT);
-    });
+    const codePromise =
+      requestPairingCode(number);
+
+    const timeoutPromise =
+      new Promise((_, reject) => {
+        setTimeout(() => {
+          reject(
+            new Error(
+              "Pairing code generation timed out after 120 seconds."
+            )
+          );
+        }, PAIRING_TIMEOUT);
+      });
 
     const code = await Promise.race([
       codePromise,
@@ -268,10 +270,12 @@ Oʀ
       );
     }
 
-    const formattedCode = String(code)
-      .replace(/\s+/g, "")
-      .match(/.{1,4}/g)
-      ?.join("-") || String(code);
+    const cleanCode = String(code)
+      .replace(/[^A-Za-z0-9]/g, "");
+
+    const formattedCode =
+      cleanCode.match(/.{1,4}/g)?.join("-") ||
+      cleanCode;
 
     await ctx.telegram.editMessageText(
       ctx.chat.id,
@@ -290,29 +294,29 @@ Oʀ
 ┃
 ┃ 📲 Oᴘᴇɴ WʜᴀᴛsAᴘᴘ
 ┃
-┃ Sᴇᴛᴛɪɴɢs
+┃ ➜ Sᴇᴛᴛɪɴɢs
 ┃ ➜ Lɪɴᴋᴇᴅ Dᴇᴠɪᴄᴇs
 ┃ ➜ Lɪɴᴋ A Dᴇᴠɪᴄᴇ
 ┃ ➜ Lɪɴᴋ Wɪᴛʜ Pʜᴏɴᴇ Nᴜᴍʙᴇʀ
 ┃
-┃ Eɴᴛᴇʀ ᴛʜᴇ ᴄᴏᴅᴇ ᴀʙᴏᴠᴇ.
+┃ Eɴᴛᴇʀ ᴛʜᴇ Cᴏᴅᴇ Aʙᴏᴠᴇ.
 ┃
-┃ ⚠️ Dᴏ ɴᴏᴛ sʜᴀʀᴇ ᴛʜɪs ᴄᴏᴅᴇ.
+┃ ⚠️ Dᴏ ɴᴏᴛ sʜᴀʀᴇ ᴛʜɪs Cᴏᴅᴇ.
 ┃
 ╰━━━━━━━━━━━━━━━━━━╯`
     );
 
     console.log(
-      `✅ Pairing code sent to Telegram user ${userId}`
+      `✅ Pairing code generated for +${number}`
     );
 
-    // Give WhatsApp some time to finish authentication.
-    await sleep(3000);
-
     pairingAttempts.delete(userId);
+
+    // Give Baileys time to process authentication.
+    await sleep(3000);
   } catch (error) {
     console.error(
-      "❌ Telegram pairing error:",
+      "❌ Pairing code error:",
       error
     );
 
@@ -327,24 +331,29 @@ Oʀ
         undefined,
         `╭━━━〔 ❌ Pᴀɪʀɪɴɢ Fᴀɪʟᴇᴅ 〕━━━╮
 ┃
-┃ WʜᴀᴛsAᴘᴘ ᴘᴀɪʀɪɴɢ ᴄᴏᴜʟᴅ ɴᴏᴛ
-┃ ʙᴇ ᴄᴏᴍᴘʟᴇᴛᴇᴅ.
+┃ WʜᴀᴛsAᴘᴘ Pᴀɪʀɪɴɢ Fᴀɪʟᴇᴅ.
 ┃
 ┃ ❗ Eʀʀᴏʀ:
 ┃ ${errorMessage}
 ┃
-┃ 🔄 Sᴇɴᴅ /pair ᴛᴏ ᴛʀʏ ᴀɢᴀɪɴ.
+┃ 🔄 Sᴇɴᴅ /pair
+┃ ᴛᴏ ᴛʀʏ ᴀɢᴀɪɴ.
 ┃
 ╰━━━━━━━━━━━━━━━━━━╯`
       );
     } catch (editError) {
       console.error(
-        "❌ Failed to edit pairing message:",
+        "❌ Failed to edit pairing error:",
         editError
       );
 
       await ctx.reply(
-        `❌ Pᴀɪʀɪɴɢ Fᴀɪʟᴇᴅ.\n\nEʀʀᴏʀ: ${errorMessage}\n\nSᴇɴᴅ /pair ᴛᴏ ᴛʀʏ ᴀɢᴀɪɴ.`
+        `❌ Pᴀɪʀɪɴɢ Fᴀɪʟᴇᴅ.
+
+Eʀʀᴏʀ:
+${errorMessage}
+
+Sᴇɴᴅ /pair ᴛᴏ ᴛʀʏ ᴀɢᴀɪɴ.`
       );
     }
   }
@@ -356,14 +365,30 @@ Oʀ
 
 bot.command("status", async (ctx) => {
   try {
-    const status = getConnectionStatus();
-    const connected = isConnected();
+    const connection =
+      require("../whatsapp/connection");
+
+    const status =
+      typeof connection.getConnectionStatus ===
+      "function"
+        ? connection.getConnectionStatus()
+        : "unknown";
+
+    const connected =
+      typeof connection.isConnected ===
+      "function"
+        ? connection.isConnected()
+        : false;
 
     await ctx.reply(
       `╭━━━〔 📊 Qᴜᴇᴇɴ ᴍᴅ Sᴛᴀᴛᴜs 〕━━━╮
 ┃
 ┃ 📡 WʜᴀᴛsAᴘᴘ:
-┃ ${connected ? "🟢 Cᴏɴɴᴇᴄᴛᴇᴅ" : "🔴 Nᴏᴛ Cᴏɴɴᴇᴄᴛᴇᴅ"}
+┃ ${
+        connected
+          ? "🟢 Cᴏɴɴᴇᴄᴛᴇᴅ"
+          : "🔴 Nᴏᴛ Cᴏɴɴᴇᴄᴛᴇᴅ"
+      }
 ┃
 ┃ 🔌 Sᴏᴄᴋᴇᴛ:
 ┃ ${status}
@@ -371,7 +396,10 @@ bot.command("status", async (ctx) => {
 ╰━━━━━━━━━━━━━━━━━━╯`
     );
   } catch (error) {
-    console.error("❌ /status error:", error);
+    console.error(
+      "❌ /status error:",
+      error
+    );
 
     await ctx.reply(
       "❌ Fᴀɪʟᴇᴅ ᴛᴏ ɢᴇᴛ sᴛᴀᴛᴜs."
@@ -400,7 +428,10 @@ bot.command("ping", async (ctx) => {
       `🏓 Pᴏɴɢ!\n\n⚡ Lᴀᴛᴇɴᴄʏ: ${latency}ms`
     );
   } catch (error) {
-    console.error("❌ /ping error:", error);
+    console.error(
+      "❌ /ping error:",
+      error
+    );
   }
 });
 
@@ -409,15 +440,22 @@ bot.command("ping", async (ctx) => {
 // ============================================
 
 bot.command("runtime", async (ctx) => {
-  const seconds = Math.floor(process.uptime());
+  const seconds = Math.floor(
+    process.uptime()
+  );
 
-  const days = Math.floor(seconds / 86400);
+  const days = Math.floor(
+    seconds / 86400
+  );
+
   const hours = Math.floor(
     (seconds % 86400) / 3600
   );
+
   const minutes = Math.floor(
     (seconds % 3600) / 60
   );
+
   const secs = seconds % 60;
 
   await ctx.reply(
@@ -450,6 +488,12 @@ async function sendHelp(ctx) {
 ┃ ⏱️ Rᴜɴᴛɪᴍᴇ
 ┃ /runtime
 ┃
+┃ 📈 Sᴛᴀᴛs
+┃ /stats
+┃
+┃ 👑 Oᴡɴᴇʀ
+┃ /owner
+┃
 ┃ ❓ Hᴇʟᴘ
 ┃ /help
 ┃
@@ -469,7 +513,10 @@ bot.action("BOT_HELP", async (ctx) => {
     await ctx.answerCbQuery();
     await sendHelp(ctx);
   } catch (error) {
-    console.error("❌ Help button error:", error);
+    console.error(
+      "❌ Help button error:",
+      error
+    );
   }
 });
 
@@ -481,8 +528,20 @@ bot.action("BOT_STATUS", async (ctx) => {
   try {
     await ctx.answerCbQuery();
 
-    const status = getConnectionStatus();
-    const connected = isConnected();
+    const connection =
+      require("../whatsapp/connection");
+
+    const status =
+      typeof connection.getConnectionStatus ===
+      "function"
+        ? connection.getConnectionStatus()
+        : "unknown";
+
+    const connected =
+      typeof connection.isConnected ===
+      "function"
+        ? connection.isConnected()
+        : false;
 
     await ctx.reply(
       `📊 Qᴜᴇᴇɴ ᴍᴅ Sᴛᴀᴛᴜs\n\n` +
@@ -509,7 +568,7 @@ bot.command("unpair", async (ctx) => {
   await ctx.reply(
     `⚠️ Uɴᴘᴀɪʀ ɪs ʜᴀɴᴅʟᴇᴅ ʙʏ ᴛʜᴇ WʜᴀᴛsAᴘᴘ sᴇssɪᴏɴ.
 
-Iғ ʏᴏᴜ ᴡᴀɴᴛ ᴛᴏ ʀᴇᴍᴏᴠᴇ ᴛʜᴇ sᴇssɪᴏɴ, ᴜsᴇ ᴛʜᴇ WʜᴀᴛsAᴘᴘ ʟɪɴᴋᴇᴅ ᴅᴇᴠɪᴄᴇs sᴇᴛᴛɪɴɢs ᴏʀ ʀᴇᴍᴏᴠᴇ ᴛʜᴇ ᴀᴜᴛʜ sᴇssɪᴏɴ ғʀᴏᴍ ᴛʜᴇ sᴇʀᴠᴇʀ.`
+Rᴇᴍᴏᴠᴇ ᴛʜᴇ ʟɪɴᴋᴇᴅ ᴅᴇᴠɪᴄᴇ ғʀᴏᴍ WʜᴀᴛsAᴘᴘ ᴏʀ ʀᴇᴍᴏᴠᴇ ᴛʜᴇ ᴀᴜᴛʜ sᴇssɪᴏɴ ғʀᴏᴍ ᴛʜᴇ sᴇʀᴠᴇʀ.`
   );
 });
 
@@ -518,7 +577,8 @@ Iғ ʏᴏᴜ ᴡᴀɴᴛ ᴛᴏ ʀᴇᴍᴏᴠᴇ ᴛʜᴇ sᴇssɪᴏɴ, ᴜs�
 // ============================================
 
 bot.command("stats", async (ctx) => {
-  const memory = process.memoryUsage();
+  const memory =
+    process.memoryUsage();
 
   const ram = (
     memory.rss /
@@ -534,14 +594,16 @@ bot.command("stats", async (ctx) => {
 ┃ 🧠 Rᴀᴍ: ${ram} MB
 ┃
 ┃ ⏱️ Uᴘᴛɪᴍᴇ:
-┃ ${Math.floor(process.uptime())}s
+┃ ${Math.floor(
+      process.uptime()
+    )}s
 ┃
 ╰━━━━━━━━━━━━━━━━━━╯`
   );
 });
 
 // ============================================
-// OWNER COMMAND
+// /OWNER
 // ============================================
 
 bot.command("owner", async (ctx) => {
@@ -557,14 +619,19 @@ bot.command("owner", async (ctx) => {
 });
 
 // ============================================
-// STARTUP
+// START TELEGRAM
 // ============================================
 
 async function startTelegramBot() {
   try {
-    console.log("🚀 Starting Queen MD Telegram pairing bot...");
+    console.log(
+      "🚀 Starting Queen MD Telegram pairing bot..."
+    );
 
-    if (typeof sendStartup === "function") {
+    if (
+      typeof sendStartup ===
+      "function"
+    ) {
       try {
         await sendStartup(bot);
       } catch (error) {
@@ -596,7 +663,9 @@ async function startTelegramBot() {
 
 bot.catch((error, ctx) => {
   console.error(
-    `❌ Telegram error for ${ctx?.from?.id || "unknown user"}:`,
+    `❌ Telegram error for ${
+      ctx?.from?.id || "unknown user"
+    }:`,
     error
   );
 });
