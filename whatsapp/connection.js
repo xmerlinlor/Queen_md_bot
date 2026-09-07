@@ -4,11 +4,17 @@ const {
   default: makeWASocket,
   useMultiFileAuthState,
   DisconnectReason,
+  fetchLatestBaileysVersion,
 } = require("@whiskeysockets/baileys");
 
 const P = require("pino");
 const fs = require("fs");
 const path = require("path");
+
+// ╔══════════════════════════════════════╗
+// ║          👑 QUEEN MD                ║
+// ║       WHATSAPP CONNECTION           ║
+// ╚══════════════════════════════════════╝
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // ⚙️ CONFIG
@@ -21,13 +27,16 @@ const AUTH_DIR = path.join(
 
 let sock = null;
 let pairingNumber = null;
+
 let connectionStatus = "closed";
 let starting = false;
-let pairingPromise = null;
 let reconnectTimer = null;
 
-// Prevent duplicate pairing requests
-let pairingRequested = false;
+// Prevent multiple simultaneous starts
+let startPromise = null;
+
+// Prevent multiple pairing requests
+let pairingPromise = null;
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 📱 CLEAN NUMBER
@@ -41,6 +50,10 @@ function cleanNumber(number) {
     .replace(/^0+/, "");
 
   if (!cleaned || cleaned.length < 8) {
+    return null;
+  }
+
+  if (cleaned.length > 15) {
     return null;
   }
 
@@ -58,332 +71,298 @@ function sleep(ms) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 🚀 START WHATSAPP SOCKET
+// 🔎 GET DISCONNECT CODE
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+function getDisconnectCode(lastDisconnect) {
+  try {
+    return (
+      lastDisconnect?.error?.output?.statusCode ||
+      lastDisconnect?.error?.data?.statusCode ||
+      null
+    );
+  } catch (_) {
+    return null;
+  }
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 🚀 CREATE WHATSAPP SOCKET
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+async function createSocket() {
+  fs.mkdirSync(AUTH_DIR, {
+    recursive: true,
+  });
+
+  const {
+    state,
+    saveCreds,
+  } = await useMultiFileAuthState(AUTH_DIR);
+
+  // Get the current Baileys version when possible
+  let version;
+
+  try {
+    const latest =
+      await fetchLatestBaileysVersion();
+
+    if (latest?.version) {
+      version = latest.version;
+
+      console.log(
+        `📦 Baileys version: ${version.join(".")}`
+      );
+    }
+  } catch (error) {
+    console.log(
+      "⚠️ Could not fetch latest Baileys version. Using default version."
+    );
+  }
+
+  const socketConfig = {
+    auth: state,
+
+    printQRInTerminal: false,
+
+    logger: P({
+      level: "silent",
+    }),
+
+    browser: [
+      "Queen MD",
+      "Chrome",
+      "1.0.0",
+    ],
+
+    markOnlineOnConnect: false,
+
+    generateHighQualityLinkPreview: false,
+
+    syncFullHistory: false,
+
+    connectTimeoutMs: 60000,
+
+    defaultQueryTimeoutMs: 60000,
+
+    keepAliveIntervalMs: 20000,
+
+    retryRequestDelayMs: 2000,
+
+    connectWithFullHistory: false,
+
+    shouldIgnoreJid: () => false,
+  };
+
+  if (version) {
+    socketConfig.version = version;
+  }
+
+  const newSocket =
+    makeWASocket(socketConfig);
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // 💾 SAVE CREDENTIALS
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  newSocket.ev.on(
+    "creds.update",
+    saveCreds
+  );
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // 🔌 CONNECTION UPDATE
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  newSocket.ev.on(
+    "connection.update",
+    async (update) => {
+      const {
+        connection,
+        lastDisconnect,
+      } = update;
+
+      // ──────────────────────────────
+      // 📡 CONNECTING
+      // ──────────────────────────────
+
+      if (connection === "connecting") {
+        connectionStatus = "connecting";
+
+        console.log(
+          "📡 Connecting to WhatsApp..."
+        );
+      }
+
+      // ──────────────────────────────
+      // 🟢 OPEN
+      // ──────────────────────────────
+
+      if (connection === "open") {
+        connectionStatus = "open";
+        starting = false;
+
+        console.log(
+          "╔════════════════════════════════╗"
+        );
+
+        console.log(
+          "║   👑 QUEEN MD WHATSAPP ONLINE  ║"
+        );
+
+        console.log(
+          "╚════════════════════════════════╝"
+        );
+
+        if (newSocket.user) {
+          console.log(
+            `📱 Logged in as: ${newSocket.user.id}`
+          );
+        }
+
+        console.log(
+          "✅ WhatsApp connection is ready."
+        );
+      }
+
+      // ──────────────────────────────
+      // 🔴 CLOSED
+      // ──────────────────────────────
+
+      if (connection === "close") {
+        const statusCode =
+          getDisconnectCode(
+            lastDisconnect
+          );
+
+        connectionStatus = "closed";
+
+        console.log(
+          `❌ WhatsApp connection closed${
+            statusCode
+              ? ` (${statusCode})`
+              : ""
+          }`
+        );
+
+        if (lastDisconnect?.error) {
+          console.error(
+            "❌ Disconnect error:",
+            lastDisconnect.error.message ||
+              lastDisconnect.error
+          );
+        }
+
+        // Make sure this socket is no longer used
+        if (sock === newSocket) {
+          sock = null;
+        }
+
+        starting = false;
+
+        // ────────────────────────────
+        // 🚪 LOGGED OUT
+        // ────────────────────────────
+
+        if (
+          statusCode ===
+          DisconnectReason.loggedOut
+        ) {
+          console.log(
+            "🚪 WhatsApp session logged out."
+          );
+
+          pairingNumber = null;
+
+          return;
+        }
+
+        // ────────────────────────────
+        // 🔄 RECONNECT
+        // ────────────────────────────
+
+        if (reconnectTimer) {
+          clearTimeout(reconnectTimer);
+        }
+
+        reconnectTimer = setTimeout(
+          async () => {
+            reconnectTimer = null;
+
+            try {
+              console.log(
+                "🔄 Reconnecting WhatsApp..."
+              );
+
+              await startWhatsApp();
+            } catch (error) {
+              console.error(
+                "❌ WhatsApp reconnect failed:",
+                error.message
+              );
+            }
+          },
+          5000
+        );
+      }
+    }
+  );
+
+  return newSocket;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 🚀 START WHATSAPP
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function startWhatsApp() {
+  // Already have a socket
   if (sock) {
     return sock;
   }
 
-  if (starting) {
-    let tries = 0;
-
-    while (!sock && starting && tries < 40) {
-      await sleep(500);
-      tries++;
-    }
-
-    if (sock) {
-      return sock;
-    }
+  // Another start operation is already running
+  if (startPromise) {
+    return startPromise;
   }
 
   starting = true;
 
-  try {
-    fs.mkdirSync(AUTH_DIR, {
-      recursive: true,
-    });
+  startPromise = (async () => {
+    try {
+      console.log(
+        "🚀 Starting Queen MD WhatsApp..."
+      );
 
-    const {
-      state,
-      saveCreds,
-    } = await useMultiFileAuthState(AUTH_DIR);
+      const newSocket =
+        await createSocket();
 
-    const socketConfig = {
-      auth: state,
+      sock = newSocket;
 
-      printQRInTerminal: false,
+      connectionStatus = "connecting";
 
-      logger: P({
-        level: "silent",
-      }),
+      console.log(
+        "📡 WhatsApp socket initialized."
+      );
 
-      browser: [
-        "Queen MD",
-        "Chrome",
-        "1.0.0",
-      ],
+      return newSocket;
+    } catch (error) {
+      sock = null;
+      connectionStatus = "closed";
+      starting = false;
 
-      markOnlineOnConnect: false,
+      console.error(
+        "❌ WhatsApp start error:",
+        error.message
+      );
 
-      generateHighQualityLinkPreview: false,
+      throw error;
+    } finally {
+      startPromise = null;
+    }
+  })();
 
-      syncFullHistory: false,
-
-      connectTimeoutMs: 60000,
-
-      defaultQueryTimeoutMs: 60000,
-
-      keepAliveIntervalMs: 20000,
-
-      retryRequestDelayMs: 2000,
-    };
-
-    sock = makeWASocket(socketConfig);
-
-    connectionStatus = "connecting";
-
-    console.log(
-      "📡 WhatsApp socket initialized."
-    );
-
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // 💾 SAVE CREDENTIALS
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-    sock.ev.on(
-      "creds.update",
-      saveCreds
-    );
-
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // 🔌 CONNECTION UPDATE
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-    sock.ev.on(
-      "connection.update",
-      async (update) => {
-        const {
-          connection,
-          lastDisconnect,
-        } = update;
-
-        // ──────────────────────────────
-        // 📡 CONNECTING
-        // ──────────────────────────────
-
-        if (connection === "connecting") {
-          connectionStatus = "connecting";
-
-          console.log(
-            "📡 Connecting to WhatsApp..."
-          );
-
-          /*
-           * IMPORTANT:
-           * Pairing code is requested only after
-           * WhatsApp reports that the socket is
-           * actually connecting.
-           */
-          if (
-            pairingNumber &&
-            !pairingRequested &&
-            sock &&
-            !sock.authState?.creds?.registered
-          ) {
-            pairingRequested = true;
-
-            try {
-              console.log(
-                `🔐 Requesting pairing code for ${pairingNumber}...`
-              );
-
-              const code =
-                await sock.requestPairingCode(
-                  pairingNumber
-                );
-
-              if (!code) {
-                throw new Error(
-                  "WhatsApp did not return a pairing code."
-                );
-              }
-
-              console.log(
-                "╔════════════════════════════════╗"
-              );
-              console.log(
-                "║   🔐 PAIRING CODE GENERATED    ║"
-              );
-              console.log(
-                "╚════════════════════════════════╝"
-              );
-
-              console.log(
-                `📱 Number: ${pairingNumber}`
-              );
-
-              console.log(
-                `🔑 Code: ${code}`
-              );
-
-              /*
-               * Resolve the waiting /pair request.
-               */
-              if (
-                sock._queenPairingResolve
-              ) {
-                sock._queenPairingResolve(code);
-
-                sock._queenPairingResolve =
-                  null;
-
-                sock._queenPairingReject =
-                  null;
-              }
-            } catch (error) {
-              console.error(
-                "❌ Pairing request failed:",
-                error.message
-              );
-
-              pairingRequested = false;
-
-              if (
-                sock._queenPairingReject
-              ) {
-                sock._queenPairingReject(
-                  error
-                );
-
-                sock._queenPairingResolve =
-                  null;
-
-                sock._queenPairingReject =
-                  null;
-              }
-            }
-          }
-        }
-
-        // ──────────────────────────────
-        // 🟢 OPEN
-        // ──────────────────────────────
-
-        if (connection === "open") {
-          connectionStatus = "open";
-          starting = false;
-
-          console.log(
-            "╔════════════════════════════════╗"
-          );
-
-          console.log(
-            "║   👑 QUEEN MD WHATSAPP ONLINE  ║"
-          );
-
-          console.log(
-            "╚════════════════════════════════╝"
-          );
-
-          if (sock?.user) {
-            console.log(
-              `📱 Logged in as: ${sock.user.id}`
-            );
-          }
-
-          pairingRequested = false;
-        }
-
-        // ──────────────────────────────
-        // 🔴 CLOSED
-        // ──────────────────────────────
-
-        if (connection === "close") {
-          connectionStatus = "closed";
-          starting = false;
-
-          let statusCode = null;
-
-          try {
-            statusCode =
-              lastDisconnect?.error
-                ?.output?.statusCode ||
-              lastDisconnect?.error
-                ?.data?.statusCode;
-          } catch (_) {}
-
-          console.log(
-            `❌ WhatsApp connection closed${
-              statusCode
-                ? ` (${statusCode})`
-                : ""
-            }`
-          );
-
-          if (
-            lastDisconnect?.error
-          ) {
-            console.error(
-              "❌ Disconnect reason:",
-              lastDisconnect.error
-            );
-          }
-
-          // ────────────────────────────
-          // 🚪 LOGGED OUT
-          // ────────────────────────────
-
-          if (
-            statusCode ===
-            DisconnectReason.loggedOut
-          ) {
-            console.log(
-              "🚪 WhatsApp logged out."
-            );
-
-            sock = null;
-            pairingNumber = null;
-            pairingRequested = false;
-
-            return;
-          }
-
-          /*
-           * The old socket is dead.
-           * Clear it before reconnecting.
-           */
-          sock = null;
-          pairingRequested = false;
-
-          // ────────────────────────────
-          // 🔄 RECONNECT
-          // ────────────────────────────
-
-          if (reconnectTimer) {
-            clearTimeout(reconnectTimer);
-          }
-
-          reconnectTimer = setTimeout(
-            async () => {
-              reconnectTimer = null;
-
-              try {
-                console.log(
-                  "🔄 Reconnecting WhatsApp..."
-                );
-
-                await startWhatsApp();
-              } catch (error) {
-                console.error(
-                  "❌ Reconnection failed:",
-                  error.message
-                );
-              }
-            },
-            5000
-          );
-        }
-      }
-    );
-
-    starting = false;
-
-    return sock;
-  } catch (error) {
-    starting = false;
-    connectionStatus = "closed";
-    sock = null;
-
-    console.error(
-      "❌ WhatsApp start error:",
-      error.message
-    );
-
-    throw error;
-  }
+  return startPromise;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -391,7 +370,8 @@ async function startWhatsApp() {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function requestPairingCode(number) {
-  const phoneNumber = cleanNumber(number);
+  const phoneNumber =
+    cleanNumber(number);
 
   if (!phoneNumber) {
     throw new Error(
@@ -399,166 +379,197 @@ async function requestPairingCode(number) {
     );
   }
 
+  // Prevent two users from requesting codes
+  // at exactly the same time.
   if (pairingPromise) {
     throw new Error(
-      "A pairing request is already in progress."
+      "Another pairing request is already in progress. Please wait."
     );
   }
 
-  pairingPromise = new Promise(
-    async (resolve, reject) => {
+  pairingPromise = (async () => {
+    try {
+      console.log(
+        `📱 Preparing pairing for ${phoneNumber}...`
+      );
+
+      pairingNumber = phoneNumber;
+
+      // ──────────────────────────────
+      // 🚀 START SOCKET
+      // ──────────────────────────────
+
+      let socket = sock;
+
+      if (!socket) {
+        socket = await startWhatsApp();
+      }
+
+      if (!socket) {
+        throw new Error(
+          "WhatsApp socket could not be created."
+        );
+      }
+
+      // ──────────────────────────────
+      // 🔐 CHECK SESSION
+      // ──────────────────────────────
+
+      if (
+        socket.authState?.creds?.registered
+      ) {
+        throw new Error(
+          "WhatsApp is already paired with this session."
+        );
+      }
+
+      // ──────────────────────────────
+      // ⏳ WAIT FOR SOCKET
+      // ──────────────────────────────
+
+      console.log(
+        "⏳ Waiting for WhatsApp socket..."
+      );
+
+      const timeout = 60000;
+
+      const startTime = Date.now();
+
+      while (true) {
+        // Socket may have been replaced
+        if (sock && sock !== socket) {
+          socket = sock;
+        }
+
+        // Check if registered
+        if (
+          socket?.authState?.creds
+            ?.registered
+        ) {
+          throw new Error(
+            "WhatsApp session became registered. Please try again."
+          );
+        }
+
+        // We only need the socket to exist and
+        // be in a usable connecting/open state.
+        if (
+          socket &&
+          (
+            connectionStatus ===
+              "connecting" ||
+            connectionStatus === "open"
+          )
+        ) {
+          break;
+        }
+
+        // Socket died
+        if (
+          connectionStatus === "closed" ||
+          !socket
+        ) {
+          console.log(
+            "⚠️ WhatsApp socket closed. Starting a fresh socket..."
+          );
+
+          socket = await startWhatsApp();
+
+          if (!socket) {
+            throw new Error(
+              "WhatsApp socket is unavailable."
+            );
+          }
+        }
+
+        // Timeout protection
+        if (
+          Date.now() - startTime >=
+          timeout
+        ) {
+          throw new Error(
+            "WhatsApp connection timed out. Please try /pair again."
+          );
+        }
+
+        await sleep(500);
+      }
+
+      // ──────────────────────────────
+      // 🔑 REQUEST CODE
+      // ──────────────────────────────
+
+      console.log(
+        `🔐 Requesting pairing code for ${phoneNumber}...`
+      );
+
+      let code;
+
       try {
-        console.log(
-          `📱 Preparing pairing for ${phoneNumber}...`
+        code =
+          await socket.requestPairingCode(
+            phoneNumber
+          );
+      } catch (error) {
+        console.error(
+          "❌ Baileys pairing request failed:",
+          error.message
         );
 
-        /*
-         * Store the number BEFORE starting the socket.
-         * The connection.update "connecting" event
-         * will then request the pairing code.
-         */
-        pairingNumber = phoneNumber;
-        pairingRequested = false;
-
-        const socket =
-          await startWhatsApp();
-
-        if (!socket) {
-          throw new Error(
-            "WhatsApp socket could not be created."
-          );
-        }
-
-        /*
-         * Already connected / registered account.
-         */
-        if (
-          socket.authState?.creds?.registered
-        ) {
-          pairingNumber = null;
-
-          throw new Error(
-            "WhatsApp is already paired with this session."
-          );
-        }
-
-        /*
-         * If the socket is already in connecting
-         * state, the connection.update event may
-         * have already happened before this Promise
-         * was attached.
-         *
-         * Give it a short opportunity to fire.
-         */
-        let waited = 0;
-
-        while (
-          socket &&
-          connectionStatus !== "connecting" &&
-          connectionStatus !== "open" &&
-          waited < 10000
-        ) {
-          await sleep(250);
-          waited += 250;
-        }
-
-        /*
-         * If it never reaches a usable state,
-         * don't call requestPairingCode blindly.
-         */
+        // If the socket died during the request,
+        // report a clean error instead of leaving
+        // the Telegram request hanging.
         if (
           connectionStatus === "closed" ||
           !sock
         ) {
           throw new Error(
-            "WhatsApp connection closed before pairing could start."
+            "WhatsApp socket closed while generating the pairing code."
           );
         }
 
-        /*
-         * If connection.update has not yet requested
-         * the code, keep the Promise alive and let the
-         * connecting event resolve it.
-         */
-        sock._queenPairingResolve =
-          (code) => {
-            pairingNumber = phoneNumber;
-            resolve(code);
-          };
-
-        sock._queenPairingReject =
-          (error) => {
-            reject(error);
-          };
-
-        /*
-         * In case the socket is already connecting and
-         * the event was missed, request the code here.
-         *
-         * This is protected by pairingRequested so
-         * duplicate requests cannot happen.
-         */
-        if (
-          connectionStatus === "connecting" &&
-          !pairingRequested &&
-          !sock.authState?.creds?.registered
-        ) {
-          pairingRequested = true;
-
-          try {
-            console.log(
-              `🔐 Requesting pairing code for ${phoneNumber}...`
-            );
-
-            const code =
-              await sock.requestPairingCode(
-                phoneNumber
-              );
-
-            if (!code) {
-              throw new Error(
-                "WhatsApp did not return a pairing code."
-              );
-            }
-
-            pairingNumber = phoneNumber;
-
-            console.log(
-              "╔════════════════════════════════╗"
-            );
-
-            console.log(
-              "║   🔐 PAIRING CODE GENERATED    ║"
-            );
-
-            console.log(
-              "╚════════════════════════════════╝"
-            );
-
-            console.log(
-              `📱 Number: ${phoneNumber}`
-            );
-
-            console.log(
-              `🔑 Code: ${code}`
-            );
-
-            resolve(code);
-          } catch (error) {
-            pairingRequested = false;
-            reject(error);
-          }
-        }
-      } catch (error) {
-        console.error(
-          "❌ Pairing code error:",
-          error.message
-        );
-
-        reject(error);
+        throw error;
       }
+
+      if (!code) {
+        throw new Error(
+          "WhatsApp did not return a pairing code."
+        );
+      }
+
+      console.log(
+        "╔════════════════════════════════╗"
+      );
+
+      console.log(
+        "║   🔐 PAIRING CODE GENERATED    ║"
+      );
+
+      console.log(
+        "╚════════════════════════════════╝"
+      );
+
+      console.log(
+        `📱 Number: ${phoneNumber}`
+      );
+
+      console.log(
+        `🔑 Code: ${code}`
+      );
+
+      return code;
+
+    } catch (error) {
+      console.error(
+        "❌ Pairing code error:",
+        error.message
+      );
+
+      throw error;
+    } finally {
+      pairingNumber = null;
     }
-  );
+  })();
 
   try {
     return await pairingPromise;
@@ -631,6 +642,22 @@ function isConnected() {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 🚪 CLEAR SOCKET
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+function clearSocket() {
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+
+  sock = null;
+  pairingNumber = null;
+  connectionStatus = "closed";
+  starting = false;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 📤 EXPORTS
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -642,4 +669,5 @@ module.exports = {
   getPairingNumber,
   getConnectionStatus,
   isConnected,
+  clearSocket,
 };
